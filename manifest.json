@@ -3,8 +3,8 @@
   "short_name": "Secure Send",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f5f9",
-  "theme_color": "#14213d",
+  "background_color": "#f5f5f4",
+  "theme_color": "#111111",
   "lang": "fr",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }

@@ -157,10 +157,133 @@ function csv(rows, cols) {
   const cell = (v) => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   return '﻿' + [cols.map((c) => c[0]).join(';')].concat(rows.map((r) => cols.map((c) => cell(c[1](r))).join(';'))).join('\r\n');
 }
-function download(name, text) {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+function downloadBlob(name, blob) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+const download = (name, text) => downloadBlob(name, new Blob([text], { type: 'text/csv;charset=utf-8' }));
+
+/* ---------- facture en image et en PDF ---------- */
+const BRAND = '#ff8800', INK = '#111111', MUTED = '#6b6b6b', LINE = '#e7e5e4';
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+/* PDF A4 d'une page contenant l'image de la facture (JPEG), sans librairie externe. */
+function makePdf(jpeg, iw, ih) {
+  const enc = new TextEncoder();
+  const PW = 595.28, PH = 841.89, m = 28;
+  let w = PW - 2 * m, h = (ih / iw) * w;
+  if (h > PH - 2 * m) { h = PH - 2 * m; w = (iw / ih) * h; }
+  const x0 = (PW - w) / 2, y0 = PH - m - h;
+  const content = `q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x0.toFixed(2)} ${y0.toFixed(2)} cm /Im0 Do Q`;
+  const parts = [], offsets = [];
+  let len = 0;
+  const push = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+  push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  const obj = (n, body, stream) => {
+    offsets[n] = len;
+    push(`${n} 0 obj\n${body}\n`);
+    if (stream) { push('stream\n'); push(stream); push('\nendstream\n'); }
+    push('endobj\n');
+  };
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+  obj(4, `<< /Type /XObject /Subtype /Image /Width ${iw} /Height ${ih} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>`, jpeg);
+  obj(5, `<< /Length ${enc.encode(content).length} >>`, content);
+  const xref = len;
+  let x = 'xref\n0 6\n0000000000 65535 f \n';
+  for (let i = 1; i <= 5; i++) x += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  push(x + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+function wrapText(ctx, text, maxW) {
+  const out = [];
+  String(text || '').split('\n').forEach((para) => {
+    let line = '';
+    para.split(/\s+/).forEach((w) => {
+      const t = line ? line + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t;
+    });
+    out.push(line);
+  });
+  return out;
+}
+function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+async function invoiceCanvas(inv) {
+  try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) { /* police par défaut */ }
+  const st = S.settings, c = clientById(inv.client_id);
+  const W = 1080, P = 72, F = 'Inter, Arial, sans-serif';
+  const probe = document.createElement('canvas').getContext('2d'); probe.font = `400 27px ${F}`;
+  const paid = inv.status === 'paid';
+  const payLines = paid ? [] : wrapText(probe, st.payment || '', W - 2 * P - 48);
+  const H = 1010 + payLines.length * 40;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, W, H);
+  x.fillStyle = BRAND; x.fillRect(0, 0, W, 14);
+  let logoH = 0;
+  try { const img = await loadImg('logo.png'); logoH = 118; x.drawImage(img, P - 8, P - 6, (img.width / img.height) * logoH, logoH); } catch (e) { x.fillStyle = INK; x.font = `800 48px ${F}`; x.fillText(st.business || 'Secure Send Group', P, P + 60); logoH = 80; }
+  x.textAlign = 'right'; x.fillStyle = INK; x.font = `800 56px ${F}`; x.fillText('FACTURE', W - P, P + 46);
+  x.font = `600 27px ${F}`; x.fillText(`N° ${inv.number}`, W - P, P + 90);
+  x.fillStyle = MUTED; x.font = `400 24px ${F}`;
+  x.fillText(`Émise le ${fmtDate(inv.issue_date)}`, W - P, P + 128); x.fillText(`Échéance ${fmtDate(inv.due_date)}`, W - P, P + 160);
+  let y = P + 200;
+  x.fillStyle = INK; x.fillRect(P, y, W - 2 * P, 4); y += 62;
+  x.textAlign = 'left'; x.fillStyle = MUTED; x.font = `600 22px ${F}`; x.fillText('FACTURÉ À', P, y); y += 46;
+  x.fillStyle = INK; x.font = `700 38px ${F}`; x.fillText(clientName(inv.client_id, inv.client_name), P, y); y += 40;
+  if (c) { x.fillStyle = MUTED; x.font = `400 26px ${F}`; x.fillText(fmtPhone(c.phone), P, y); }
+  const label = paid ? 'PAYÉE' : isLate(inv) ? 'EN RETARD' : 'À PAYER';
+  const col = paid ? '#15803d' : isLate(inv) ? '#b42318' : BRAND;
+  x.font = `800 30px ${F}`; const sw = x.measureText(label).width + 48;
+  rrect(x, W - P - sw, y - 66, sw, 62, 12); x.lineWidth = 4; x.strokeStyle = col; x.stroke();
+  x.fillStyle = col; x.textAlign = 'center'; x.fillText(label, W - P - sw / 2, y - 24);
+  y += 60;
+  x.fillStyle = INK; x.fillRect(P, y, W - 2 * P, 66);
+  x.fillStyle = '#ffffff'; x.font = `700 25px ${F}`; x.textAlign = 'left'; x.fillText('Description', P + 24, y + 42);
+  x.textAlign = 'right'; x.fillText('Montant', W - P - 24, y + 42); y += 66;
+  x.fillStyle = INK; x.font = `400 29px ${F}`; x.textAlign = 'left';
+  x.fillText(`${inv.service} · ${periodLabel(inv.period)}`, P + 24, y + 58);
+  x.textAlign = 'right'; x.fillText(money(inv.amount, inv.currency), W - P - 24, y + 58); y += 92;
+  x.fillStyle = LINE; x.fillRect(P, y, W - 2 * P, 2); y += 22;
+  x.fillStyle = '#fff1e0'; x.fillRect(P, y, W - 2 * P, 92); x.fillStyle = BRAND; x.fillRect(P, y, 10, 92);
+  x.fillStyle = INK; x.textAlign = 'left'; x.font = `800 34px ${F}`; x.fillText('TOTAL', P + 34, y + 58);
+  x.textAlign = 'right'; x.font = `800 44px ${F}`; x.fillText(money(inv.amount, inv.currency), W - P - 24, y + 62); y += 140;
+  x.textAlign = 'left';
+  if (paid) {
+    x.fillStyle = '#15803d'; x.font = `700 30px ${F}`; x.fillText(`Payée le ${fmtDate(inv.paid_date)}. Merci !`, P, y);
+  } else {
+    x.fillStyle = MUTED; x.font = `600 22px ${F}`; x.fillText('COMMENT PAYER', P, y); y += 44;
+    x.fillStyle = INK; x.font = `400 27px ${F}`; payLines.forEach((l) => { x.fillText(l, P, y); y += 40; });
+  }
+  x.fillStyle = LINE; x.fillRect(P, H - 120, W - 2 * P, 2);
+  x.fillStyle = MUTED; x.font = `400 23px ${F}`; x.textAlign = 'center';
+  x.fillText(`${st.business || 'Secure Send Group'} · Merci de votre confiance`, W / 2, H - 68);
+  x.fillStyle = BRAND; x.fillRect(0, H - 14, W, 14);
+  return cv;
+}
+const canvasBlob = (cv) => new Promise((res) => cv.toBlob(res, 'image/png'));
+let prepared = null;
+function prepareInvoice(inv) {
+  prepared = { id: inv.id, png: invoiceCanvas(inv).then(async (cv) => ({ cv, blob: await canvasBlob(cv) })) };
+}
+async function shareOrDownload(blob, name, inv) {
+  const file = new File([blob], name, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: `Facture ${inv.number}` }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  downloadBlob(name, blob);
+  toast('Fichier téléchargé : joins-le dans WhatsApp.');
+}
+async function invoiceFile(inv, kind) {
+  if (!prepared || prepared.id !== inv.id) prepareInvoice(inv);
+  const { cv, blob } = await prepared.png;
+  const base = `Facture-${inv.number}`;
+  if (kind === 'png') return shareOrDownload(blob, base + '.png', inv);
+  try {
+    const jpg = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.92));
+    const bytes = new Uint8Array(await jpg.arrayBuffer());
+    return shareOrDownload(makePdf(bytes, cv.width, cv.height), base + '.pdf', inv);
+  } catch (e) { toast("Impossible de créer le PDF. Utilise l'image."); }
 }
 function exportData(kind) {
   const d = today();
@@ -199,7 +322,7 @@ function invoiceItem(inv) {
     <div class="acts">
       ${phone && inv.status !== 'paid' ? `<a class="btn wa" target="_blank" rel="noopener" href="${esc(waLink(phone, messageFor(inv)))}">${isLate(inv) ? 'Relancer' : 'Envoyer'} sur WhatsApp</a>` : ''}
       ${inv.status !== 'paid' ? `<button class="btn" data-a="paid" data-id="${esc(inv.id)}">Marquer payée</button>` : `<button class="btn" data-a="unpaid" data-id="${esc(inv.id)}">Annuler le paiement</button>`}
-      <button class="btn" data-a="inv-open" data-id="${esc(inv.id)}">Voir</button>
+      <button class="btn" data-a="inv-open" data-id="${esc(inv.id)}">Facture</button>
     </div></div>`;
 }
 
@@ -348,6 +471,7 @@ function clientSheet(id) {
 }
 function invoiceSheet(id) {
   const inv = invById(id); if (!inv) return;
+  prepareInvoice(inv);
   const st = S.settings, c = clientById(inv.client_id), msg = messageFor(inv);
   openSheet(`<h3>Facture ${esc(inv.number)}</h3>${invBadge(inv)}
     <div class="invoice"><div class="head"><div><img class="inv-logo" src="logo.png" alt="${esc(st.business)}"><div class="tag">Facture n° ${esc(inv.number)}</div></div>
@@ -360,6 +484,8 @@ function invoiceSheet(id) {
     <label>Message WhatsApp</label><textarea id="msgText" readonly style="min-height:150px">${esc(msg)}</textarea>
     <div class="foot">
       <button class="btn danger" data-a="inv-del" data-id="${esc(id)}">Supprimer</button>
+      <button class="btn" data-a="inv-png" data-id="${esc(id)}">Partager l'image</button>
+      <button class="btn" data-a="inv-pdf" data-id="${esc(id)}">PDF</button>
       <button class="btn" data-a="copy">Copier le message</button>
       ${c && c.phone ? `<a class="btn wa" target="_blank" rel="noopener" href="${esc(waLink(c.phone, msg))}">WhatsApp</a>` : ''}
       ${inv.status !== 'paid' ? `<button class="btn primary" data-a="paid" data-id="${esc(id)}" data-close="1">Marquer payée</button>` : `<button class="btn" data-a="unpaid" data-id="${esc(id)}" data-close="1">Annuler le paiement</button>`}
@@ -436,6 +562,12 @@ document.addEventListener('click', async (e) => {
     case 'paid': if (await setPaid(id, true) && el.dataset.close) closeSheet(); break;
     case 'unpaid': if (await setPaid(id, false) && el.dataset.close) closeSheet(); break;
     case 'inv-open': invoiceSheet(id); break;
+    case 'inv-png': case 'inv-pdf': {
+      const inv = invById(id); if (!inv) break;
+      el.disabled = true;
+      try { await invoiceFile(inv, a === 'inv-png' ? 'png' : 'pdf'); } finally { el.disabled = false; }
+      break;
+    }
     case 'inv-del':
       if (!el.dataset.confirmed) return confirmSheet('Supprimer cette facture ? Elle sera recréée si tu relances la génération du mois.', 'inv-del', id);
       if (await deleteInvoice(id)) closeSheet(); break;
