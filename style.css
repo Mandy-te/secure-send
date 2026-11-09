@@ -68,6 +68,8 @@ nav a.on{color:var(--accent)}
 .invoice{border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:10px}
 .invoice .head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:12px}
 .invoice .biz{font-weight:700;font-size:16px}
+.invoice .inv-logo{display:block;height:46px;width:auto;margin-bottom:6px}
+.login-logo{display:block;width:220px;max-width:70%;height:auto;margin:0 0 10px}
 .invoice table{width:100%;border-collapse:collapse;font-size:14px}
 .invoice td{padding:6px 0;border-bottom:1px solid var(--line)}
 .invoice td:last-child{text-align:right}
@@ -78,7 +80,8 @@ nav a.on{color:var(--accent)}
 .muted{color:var(--muted)}
 .sep{height:1px;background:var(--line);margin:14px 0}
 .tag{font-size:12px;color:var(--muted)}
-.login{max-width:380px;margin:12vh auto 0;padding:0 18px}
+.login{max-width:380px;margin:10vh auto 0;padding:24px 20px;background:#fff;border:1px solid var(--line);border-radius:16px}
+@media(max-width:420px){.login{margin:8vh 12px 0}}
 .login .logo{width:56px;height:56px;margin-bottom:14px}
 .login h1{margin:0 0 4px}
 .center{text-align:center;padding:30vh 20px 0;color:var(--muted)}

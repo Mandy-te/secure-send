@@ -350,7 +350,7 @@ function invoiceSheet(id) {
   const inv = invById(id); if (!inv) return;
   const st = S.settings, c = clientById(inv.client_id), msg = messageFor(inv);
   openSheet(`<h3>Facture ${esc(inv.number)}</h3>${invBadge(inv)}
-    <div class="invoice"><div class="head"><div><div class="biz">${esc(st.business)}</div><div class="tag">Facture n° ${esc(inv.number)}</div></div>
+    <div class="invoice"><div class="head"><div><img class="inv-logo" src="logo.png" alt="${esc(st.business)}"><div class="tag">Facture n° ${esc(inv.number)}</div></div>
       <div style="text-align:right" class="tag">Émise le ${fmtDate(inv.issue_date)}<br>Échéance ${fmtDate(inv.due_date)}</div></div>
       <div class="tag">Facturé à</div><div style="font-weight:600;margin-bottom:12px">${esc(clientName(inv.client_id, inv.client_name))}${c ? `<div class="tag">${esc(fmtPhone(c.phone))}</div>` : ''}</div>
       <table><tr><td>${esc(inv.service)} · ${esc(periodLabel(inv.period))}</td><td>${esc(money(inv.amount, inv.currency))}</td></tr>
@@ -371,7 +371,7 @@ function confirmSheet(text, action, id) {
 
 /* ---------- connexion ---------- */
 function viewLogin(msg) {
-  return `<div class="login"><img class="logo" src="icon.svg" alt=""><h1>Secure Send</h1><p class="muted" style="margin:0 0 18px">Gestion des abonnements</p>
+  return `<div class="login"><img class="login-logo" src="logo.png" alt="Secure Send Group"><p class="muted" style="margin:0 0 18px">Gestion des abonnements</p>
     ${msg ? `<div class="banner err">${esc(msg)}</div>` : ''}
     <form data-form="login">
       <label>Email</label><input type="email" name="email" autocomplete="username" required>
